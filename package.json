@@ -1,0 +1,40 @@
+{
+  "name": "sonic-panel-backend",
+  "version": "1.0.0",
+  "description": "Fastify TypeScript backend for Sonic Panel",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": [
+    "fastify",
+    "typescript",
+    "api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@fastify/cors": "^8.4.2",
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/jwt": "^8.0.0",
+    "@fastify/mongodb": "8",
+    "axios": "^1.13.2",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.3.1",
+    "fastify": "^4.25.2",
+    "mongoose": "^8.0.3",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.10.6",
+    "@typescript-eslint/eslint-plugin": "^6.17.0",
+    "@typescript-eslint/parser": "^6.17.0",
+    "eslint": "^8.56.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
