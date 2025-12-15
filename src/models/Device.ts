@@ -2,6 +2,7 @@ export interface IDevice {
   _id?: string;
   ipAddress: string;
   status: 'active' | 'inactive';
+  name?: string;
   creditUsed?: number;
   createdAt?: Date;
   updatedAt?: Date;

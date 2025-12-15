@@ -38,6 +38,7 @@ export async function initRoutes(fastify: FastifyInstance) {
           device = await deviceModel.create({
             ipAddress: testIp,
             status: 'active',
+            name : 'Md Rijon Hossain Jibon'
           });
         }
 
@@ -46,7 +47,7 @@ export async function initRoutes(fastify: FastifyInstance) {
           data: {
             settings,
             apiKey: { key: apiKey.key, name: apiKey.name, isActive: apiKey.isActive },
-            device: { ipAddress: device.ipAddress, status: device.status }
+            device: { ipAddress: device.ipAddress, status: device.status , name : device.name }
           }
         });
 
