@@ -16,7 +16,7 @@ dotenv.config();
 const PORT = parseInt(process.env.PORT || '3001', 10);
  
 
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://admin:secret@38.54.122.188:27017/AdminHub?authSource=admin';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://admin:secret@localhost:27017/AdminHub?authSource=admin';
 
 /* ------------------ Server ------------------ */
 const fastify: FastifyInstance = Fastify({
