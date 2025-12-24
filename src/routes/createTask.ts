@@ -94,7 +94,7 @@ export async function createTaskRoutes(fastify: FastifyInstance) {
         }
 
 
-        // 6️⃣ Check existing completed task
+      /*   // 6️⃣ Check existing completed task
         const existingTask = await TaskModel.findOne({
           'task.question': task.question, 'task.queries': { $in: task.queries }
         })
@@ -103,7 +103,7 @@ export async function createTaskRoutes(fastify: FastifyInstance) {
         if (existingTask) {
           return reply.send(existingTask.result);
         }
-
+ */
         // 8️⃣ Call external CaptchaSonic API
 
         try {
