@@ -25,12 +25,17 @@
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.3.1",
     "fastify": "^4.25.2",
+    "jimp": "^0.22.10",
     "mongoose": "^8.0.3",
+    "sharp": "^0.34.5",
+    "tesseract.js": "^7.0.0",
+    "useragent": "^2.3.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.10.6",
+    "@types/useragent": "^2.3.4",
     "@typescript-eslint/eslint-plugin": "^6.17.0",
     "@typescript-eslint/parser": "^6.17.0",
     "eslint": "^8.56.0",

@@ -2,11 +2,12 @@ import mongoose, { Schema, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export interface IUser extends Document {
-  email: string;
+  email?: string;
   password: string;
   name: string;
   role: 'admin' | 'user' | 'moderator';
-  status: 'active' | 'inactive';
+  status: 'active' | 'suespend';
+  visitorId: string;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(password: string): Promise<boolean>;
@@ -16,14 +17,13 @@ const userSchema = new Schema<IUser>(
   {
     email: {
       type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
+      default: null,
+      sparse: true
     },
     password: {
       type: String,
       required: true,
+      default : '123456',
       minlength: 6,
     },
     name: {
@@ -37,8 +37,12 @@ const userSchema = new Schema<IUser>(
     },
     status: {
       type: String,
-      enum: ['active', 'inactive'],
+      enum: ['active', 'suespend'],
       default: 'active',
+    },
+    visitorId: {
+      type: String,
+      default: null
     },
   },
   { timestamps: true }

@@ -1,31 +1,20 @@
-export interface ISettings {
-  _id?: string;
+import { Schema, model, Document } from 'mongoose';
+
+export interface ISettings extends Document {
+  key: string;
   maintenanceMode: boolean;
   freeTrialAllowed: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
+  app_version: string;
 }
 
-export class SettingsModel {
-  private db: any;
+const settingsSchema = new Schema<ISettings>(
+  {
+    key: { type: String, default : 'sonic_1c1d6bbad9e501fa8b131f45' },
+    maintenanceMode: { type: Boolean, default: false },
+    freeTrialAllowed: { type: Boolean, default: false },
+    app_version: { type: String, default: "1.1" }
+  },
+  { timestamps: true }
+);
 
-  constructor(db: any) {
-    this.db = db;
-  }
-
-  async create(settingsData: Omit<ISettings, '_id' | 'createdAt' | 'updatedAt'>): Promise<ISettings> {
-    const collection = this.db.collection('settings');
-    const now = new Date();
-    const result = await collection.insertOne({
-      ...settingsData,
-      createdAt: now,
-      updatedAt: now
-    });
-    return { _id: result.insertedId.toString(), ...settingsData, createdAt: now, updatedAt: now };
-  }
-
-  async findOne(): Promise<ISettings | null> {
-    const collection = this.db.collection('settings');
-    return await collection.findOne({});
-  }
-}
+export const SettingsModel = model<ISettings>('Settings', settingsSchema);

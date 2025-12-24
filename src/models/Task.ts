@@ -1,62 +1,35 @@
-export interface ITask {
-  _id?: string;
-  apiKey: string;
+import { Document, model, Schema } from 'mongoose';
+
+export interface ITask extends Document {
+ 
   task: any;
   status: 'pending' | 'completed' | 'failed';
   result?: any;
-  createdAt?: Date;
-  updatedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
-export class TaskModel {
-  private db: any;
 
-  constructor(db: any) {
-    this.db = db;
+const TaskSchema = new Schema<ITask>(
+  {
+   
+    task: {
+      type: Schema.Types.Mixed,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'completed', 'failed'],
+      default: 'pending'
+    },
+    result: {
+      type: Schema.Types.Mixed
+    }
+  },
+  {
+    timestamps: true, // adds createdAt & updatedAt automatically
+    versionKey: false
   }
+);
 
-  async create(taskData: Omit<ITask, '_id' | 'createdAt' | 'updatedAt'>): Promise<ITask> {
-    const collection = this.db.collection('tasks');
-    const now = new Date();
-    const result = await collection.insertOne({
-      ...taskData,
-      createdAt: now,
-      updatedAt: now
-    });
-    return { _id: result.insertedId.toString(), ...taskData, createdAt: now, updatedAt: now };
-  }
-
-  async findOne(query: Partial<ITask>): Promise<ITask | null> {
-    const collection = this.db.collection('tasks');
-    return await collection.findOne(query);
-  }
-
-  async findById(id: string): Promise<ITask | null> {
-    const collection = this.db.collection('tasks');
-    const { ObjectId } = require('mongodb');
-    return await collection.findOne({ _id: new ObjectId(id) });
-  }
-
-  async find(): Promise<ITask[]> {
-    const collection = this.db.collection('tasks');
-    return await collection.find({}).toArray();
-  }
-
-  async findByIdAndUpdate(id: string, updateData: Partial<ITask>): Promise<ITask | null> {
-    const collection = this.db.collection('tasks');
-    const { ObjectId } = require('mongodb');
-    const result = await collection.findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { $set: { ...updateData, updatedAt: new Date() } },
-      { returnDocument: 'after' }
-    );
-    return result.value;
-  }
-
-  async findByIdAndDelete(id: string): Promise<ITask | null> {
-    const collection = this.db.collection('tasks');
-    const { ObjectId } = require('mongodb');
-    const result = await collection.findOneAndDelete({ _id: new ObjectId(id) });
-    return result.value;
-  }
-}
+export const TaskModel = model<ITask>('Task', TaskSchema);

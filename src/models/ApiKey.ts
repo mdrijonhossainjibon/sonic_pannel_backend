@@ -1,32 +1,24 @@
-export interface IApiKey {
-  _id?: string;
+import { Schema, model, Document } from 'mongoose';
+
+export interface IApiKey extends Document {
   key: string;
   name?: string;
-  isActive: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
+  status: 'active' | 'expire' | 'inactive';
+  expiresAt?: Date;
+  lastUsedAt?: Date;
+  visitorId?: string;
 }
 
-export class ApiKeyModel {
-  private db: any;
+const apiKeySchema = new Schema<IApiKey>(
+  {
+    key: { type: String, required: true, unique: true },
+    name: { type: String },
+    status: { type: String, enum: ['active', 'expire', 'inactive'], default: 'active' },
+    expiresAt: { type: Date },
+    lastUsedAt: { type: Date },
+    visitorId: { type: String }
+  },
+  { timestamps: true }
+);
 
-  constructor(db: any) {
-    this.db = db;
-  }
-
-  async create(apiKeyData: Omit<IApiKey, '_id' | 'createdAt' | 'updatedAt'>): Promise<IApiKey> {
-    const collection = this.db.collection('apikeys');
-    const now = new Date();
-    const result = await collection.insertOne({
-      ...apiKeyData,
-      createdAt: now,
-      updatedAt: now
-    });
-    return { _id: result.insertedId.toString(), ...apiKeyData, createdAt: now, updatedAt: now };
-  }
-
-  async findOne(query: Partial<IApiKey>): Promise<IApiKey | null> {
-    const collection = this.db.collection('apikeys');
-    return await collection.findOne(query);
-  }
-}
+export const ApiKeyModel = model<IApiKey>('ApiKey', apiKeySchema);

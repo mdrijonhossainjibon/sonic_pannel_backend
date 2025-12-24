@@ -4,9 +4,11 @@ import { DeviceModel, IDevice } from '../models/Device';
 import { SettingsModel, ISettings } from '../models/Settings';
 import { ApiKeyModel, IApiKey } from '../models/ApiKey';
 import axios from 'axios';
+import { User } from '../models/User';
 
 const accessQuerySchema = z.object({
-  ip: z.string().ip()
+  visitorId: z.string(),
+  app: z.string().optional(),
 });
 
 interface CaptchaSonicResponse {
@@ -17,24 +19,19 @@ interface CaptchaSonicResponse {
 }
 
 export async function accessRoutes(fastify: FastifyInstance) {
-  const deviceModel = new DeviceModel(fastify.mongo.db);
-  const settingsModel = new SettingsModel(fastify.mongo.db);
-  const apiKeyModel = new ApiKeyModel(fastify.mongo.db);
+
 
   fastify.get<{ Querystring: z.infer<typeof accessQuerySchema> }>(
     '/',
     async (request: FastifyRequest<{ Querystring: z.infer<typeof accessQuerySchema> }>, reply: FastifyReply) => {
       try {
         // Validate query parameters
-        const { ip } = accessQuerySchema.parse(request.query);
+        const { visitorId, app } = accessQuerySchema.parse(request.query);
 
         // Check if maintenance mode is enabled
-        let settings = await settingsModel.findOne();
+        let settings = await SettingsModel.findOne();
         if (!settings) {
-          settings = await settingsModel.create({
-            maintenanceMode: false,
-            freeTrialAllowed: false,
-          });
+          settings = await SettingsModel.create({});
         }
 
         if (settings.maintenanceMode) {
@@ -44,37 +41,61 @@ export async function accessRoutes(fastify: FastifyInstance) {
           });
         }
 
+        // Check app version
+        if (app && app !== settings.app_version) {
+          return reply.status(426).send({
+            error: 'App update required',
+            status: 'update_required',
+            current_version: settings.app_version,
+            client_version: app
+          });
+        }
+
+        const user = await User.findOne({ visitorId });
+
+
+        if (!user) {
+          return reply.status(404).send({
+            error: 'User not found',
+            status: 'user_not_found'
+          });
+        }
+
+        if (user.status === 'suespend') {
+          return reply.status(403).send({
+            error: 'This device is currently inactive. Please contact admin to activate it.',
+            status: 'suespend'
+          });
+        }
+
         // Get API key
-        const apiKeyDoc = await apiKeyModel.findOne({ isActive: true });
+        const apiKeyDoc = await ApiKeyModel.findOne({ visitorId });
 
         if (!apiKeyDoc) {
           return reply.status(400).send({
             error: 'No API key found',
-            status : 'api_error'
+            status: 'api_error'
           });
         }
 
-        // Check device
-        const device = await deviceModel.findOne({ ipAddress: ip });
-
-        if (!device) {
-          return reply.status(400).send({
-            error: 'You have not eligible this extension. Please contact admin for assistance.',
-            status: 'ip_not_found'
-          });
-        }
-
-        if (device.status === 'inactive') {
+        if (apiKeyDoc.status === 'inactive') {
           return reply.status(403).send({
             error: 'This device is currently inactive. Please contact admin to activate it.',
-            status: 'ban'
+            status: 'inactive'
+          });
+        }
+
+        if (apiKeyDoc.status === 'expire' || (apiKeyDoc.expiresAt && new Date() > apiKeyDoc.expiresAt)) {
+          return reply.status(403).send({
+            error: 'API key has expired. Please contact admin to renew it.',
+            status: 'expire'
           });
         }
 
         // Make API call to CaptchaSonic
         try {
           const response = await axios.get<CaptchaSonicResponse>('https://api.captchasonic.com/balance', {
-            params: { apiKey: apiKeyDoc.key },
+            params: { apiKey: settings.key },
             timeout: 10000
           });
 
@@ -110,135 +131,5 @@ export async function accessRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // POST endpoint to add new device
-  fastify.post<{ Body: { ipAddress: string; status?: 'active' | 'inactive' } }>(
-    '/',
-    async (request: FastifyRequest<{ Body: { ipAddress: string; status?: 'active' | 'inactive' } }>, reply: FastifyReply) => {
-      try {
-        const { ipAddress, status = 'active' } = request.body;
-
-        // Check if device already exists
-        const existingDevice = await deviceModel.findOne({ ipAddress });
-        if (existingDevice) {
-          return reply.status(400).send({
-            error: 'Device with this IP address already exists'
-          });
-        }
-
-        // Create new device
-        const device = await deviceModel.create({
-          ipAddress,
-          status
-        });
-
-        return reply.status(201).send({
-          message: 'Device created successfully',
-          device: {
-            id: device._id,
-            ipAddress: device.ipAddress,
-            status: device.status,
-            createdAt: device.createdAt
-          }
-        });
-
-      } catch (error: unknown) {
-        fastify.log.error({ error }, 'Error creating device');
-        return reply.status(500).send({
-          error: 'Internal server error'
-        });
-      }
-    }
-  );
-
-  // PUT endpoint to update device status
-  fastify.put<{ Params: { id: string }; Body: { status: 'active' | 'inactive' } }>(
-    '/:id',
-    async (request: FastifyRequest<{ Params: { id: string }; Body: { status: 'active' | 'inactive' } }>, reply: FastifyReply) => {
-      try {
-        const { id } = request.params;
-        const { status } = request.body;
-
-        const device = await deviceModel.findByIdAndUpdate(
-          id,
-          { status }
-        );
-
-        if (!device) {
-          return reply.status(404).send({
-            error: 'Device not found'
-          });
-        }
-
-        return reply.send({
-          message: 'Device updated successfully',
-          device: {
-            id: device._id,
-            ipAddress: device.ipAddress,
-            status: device.status,
-            updatedAt: device.updatedAt
-          }
-        });
-
-      } catch (error: unknown) {
-        fastify.log.error({ error }, 'Error updating device');
-        return reply.status(500).send({
-          error: 'Internal server error'
-        });
-      }
-    }
-  );
-
-  // DELETE endpoint to remove device
-  fastify.delete<{ Params: { id: string } }>(
-    '/:id',
-    async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-      try {
-        const { id } = request.params;
-
-        const device = await deviceModel.findByIdAndDelete(id);
-
-        if (!device) {
-          return reply.status(404).send({
-            error: 'Device not found'
-          });
-        }
-
-        return reply.send({
-          message: 'Device deleted successfully'
-        });
-
-      } catch (error: unknown) {
-        fastify.log.error({ error }, 'Error deleting device');
-        return reply.status(500).send({
-          error: 'Internal server error'
-        });
-      }
-    }
-  );
-
-  // GET endpoint to list all devices
-  fastify.get(
-    '/devices',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const devices = await deviceModel.find();
-
-        return reply.send({
-          devices: devices.map(device => ({
-            id: device._id,
-            ipAddress: device.ipAddress,
-            status: device.status,
-            createdAt: device.createdAt,
-            updatedAt: device.updatedAt
-          }))
-        });
-
-      } catch (error: unknown) {
-        fastify.log.error({ error }, 'Error fetching devices');
-        return reply.status(500).send({
-          error: 'Internal server error'
-        });
-      }
-    }
-  );
+  
 }

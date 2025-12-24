@@ -1,14 +1,15 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { DeviceModel, IDevice } from '../models/Device';
-import { SettingsModel, ISettings } from '../models/Settings';
-import { ApiKeyModel, IApiKey } from '../models/ApiKey';
-import { TaskModel, ITask } from '../models/Task';
 
 import axios from 'axios';
 
+import { SettingsModel } from '../models/Settings';
+import { ApiKeyModel } from '../models/ApiKey';
+import { TaskModel } from '../models/Task';
+import { User } from '../models/User';
+
 const createTaskSchema = z.object({
-  apiKey: z.string(),
+  apiKey: z.string(), // device api key
   task: z.any()
 });
 
@@ -26,155 +27,141 @@ interface CaptchaSonicResponse {
 }
 
 export async function createTaskRoutes(fastify: FastifyInstance) {
-  const deviceModel = new DeviceModel(fastify.mongo.db);
-  const settingsModel = new SettingsModel(fastify.mongo.db);
-  const apiKeyModel = new ApiKeyModel(fastify.mongo.db);
-  const taskModel = new TaskModel(fastify.mongo.db);
-
-  
 
   fastify.post<{ Body: z.infer<typeof createTaskSchema> }>(
     '/',
-    async (request: FastifyRequest<{ Body: z.infer<typeof createTaskSchema> }>, reply: FastifyReply) => {
+    async (
+      request: FastifyRequest<{ Body: z.infer<typeof createTaskSchema> }>,
+      reply: FastifyReply
+    ) => {
       try {
-        // Validate request body
-        const { apiKey: deviceApiKey, task } = createTaskSchema.parse(request.body);
+        // 1️⃣ Validate request
+        const { apiKey: visitorId, task } = createTaskSchema.parse(request.body);
 
-        // Check if maintenance mode is enabled
-        let settings = await settingsModel.findOne();
+        // 2️⃣ Maintenance check
+        let settings = await SettingsModel.findOne();
         if (!settings) {
-          settings = await settingsModel.create({
-            maintenanceMode: false,
-            freeTrialAllowed: false,
-          });
+          settings = await SettingsModel.create({});
         }
 
         if (settings.maintenanceMode) {
           return reply.status(503).send({
-            error: 'The extension is currently under maintenance. Please try again later.',
+            error: 'The extension is currently under maintenance.',
             status: 'maintenance_mode'
           });
         }
+ 
 
-        // Check device by API key
-        const device = await deviceModel.findOne({ ipAddress: deviceApiKey });
+              const user = await User.findOne({ visitorId });
+        
+        
+                if (!user) {
+                  return reply.status(404).send({
+                    error: 'User not found',
+                    status: 'user_not_found'
+                  });
+                }
+        
+                if (user.status === 'suespend') {
+                  return reply.status(403).send({
+                    error: 'This device is currently inactive. Please contact admin to activate it.',
+                    status: 'suespend'
+                  });
+                }
+        
 
-        if (!device) {
-          return reply.status(400).send({
-            error: 'You have not eligible this extension. Please contact admin for assistance.',
-            status: 'ip_not_found'
-          });
-        }
-
-        if (device.status === 'inactive') {
-          return reply.status(403).send({
-            error: 'This device is currently inactive. Please contact admin to activate it.',
-            status: 'device_inactive'
-          });
-        }
-
-        // Get API key
-        const apiKeyDoc = await apiKeyModel.findOne({ isActive: true });
+     const apiKeyDoc = await ApiKeyModel.findOne({ visitorId });
 
         if (!apiKeyDoc) {
           return reply.status(400).send({
-            error: 'No active API key found'
+            error: 'No API key found',
+            status: 'api_error'
           });
         }
 
-        // Create task record
-        const taskRecord = await taskModel.create({
-          apiKey: deviceApiKey,
-          task,
-          status: 'pending'
-        });
-
-        // Call CaptchaSonic API
-        try {
-          const response = await axios.post<CaptchaSonicResponse>('https://api.captchasonic.com/createTask', {
-            apiKey: apiKeyDoc.key,
-            task
-          }, {
-            timeout: 10000
+        if (apiKeyDoc.status === 'inactive') {
+          return reply.status(403).send({
+            error: 'This device is currently inactive. Please contact admin to activate it.',
+            status: 'inactive'
           });
+        }
 
-          
+        if (apiKeyDoc.status === 'expire' || (apiKeyDoc.expiresAt && new Date() > apiKeyDoc.expiresAt)) {
+          return reply.status(403).send({
+            error: 'API key has expired. Please contact admin to renew it.',
+            status: 'expire'
+          });
+        }
+
+
+        // 6️⃣ Check existing completed task
+        const existingTask = await TaskModel.findOne({
+          'task.question': task.question, 'task.queries': { $in: task.queries }
+        })
+
+
+        if (existingTask) {
+          return reply.send(existingTask.result);
+        }
+
+        // 8️⃣ Call external CaptchaSonic API
+
+        try {
+
+          const response = await axios.post<CaptchaSonicResponse>(
+            'https://api.captchasonic.com/createTask',
+            {
+              apiKey: settings.key,
+              task
+            },
+            { timeout: 10000 }
+          );
+
           if (response.data.code === 200) {
-            // Update task status
-            await taskModel.findByIdAndUpdate(taskRecord._id!, {
-              status: 'completed',
-              result: response.data
-            });
 
-            // Update device credit usage
-            await deviceModel.incrementCredit(device._id!, 1);
+            // 7️⃣ Create new task (only if not exists)
+            await TaskModel.create({  task, status: 'completed' , result : response.data});
+
             return reply.send(response.data);
-          } else {
-            // Update task status to failed
-            await taskModel.findByIdAndUpdate(taskRecord._id!, {
-              status: 'failed',
-              result: response.data
-            });
-
-            return reply.status(400).send({
-              error: response.data.msg || 'Failed to create task',
-              code: response.data.code,
-              response: response.data
-            });
           }
 
-        } catch (apiError: unknown) {
-            console.log(apiError)
-          fastify.log.error({ error: apiError }, 'CaptchaSonic API error');
-          
-          // Update task status to failed
-          await taskModel.findByIdAndUpdate(taskRecord._id!, {
-            status: 'failed',
-            result: apiError instanceof Error ? apiError.message : String(apiError)
+
+          return reply.status(400).send({
+            error: response.data.msg || 'Task failed',
+            code: response.data.code,
+            response: response.data
           });
+
+        } catch (apiError: any) {
+          fastify.log.error(apiError, 'CaptchaSonic API error');
 
           return reply.status(500).send({
             error: 'Failed to connect to external service'
           });
         }
 
-      } catch (error: unknown) {
+      } catch (error: any) {
         if (error instanceof z.ZodError) {
           return reply.status(400).send({ error: error.errors });
         }
 
-        fastify.log.error({ error }, 'Error in createTask endpoint');
-        return reply.status(500).send({
-          error: error
-        });
+        fastify.log.error(error, 'createTask error');
+        return reply.status(500).send({ error: 'Internal server error' });
       }
     }
   );
 
-  // GET endpoint to list tasks
-  fastify.get(
-    '/tasks',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const tasks = await taskModel.find();
+  // 🔍 List tasks (admin/debug)
+  fastify.get('/tasks', async (_req, reply) => {
+    const tasks = await TaskModel.find().sort({ createdAt: -1 });
 
-        return reply.send({
-          tasks: tasks.map(task => ({
-            id: task._id,
-            apiKey: task.apiKey,
-            status: task.status,
-            result: task.result,
-            createdAt: task.createdAt,
-            updatedAt: task.updatedAt
-          }))
-        });
-
-      } catch (error: unknown) {
-        fastify.log.error({ error }, 'Error fetching tasks');
-        return reply.status(500).send({
-          error: 'Internal server error'
-        });
-      }
-    }
-  );
+    return reply.send({
+      tasks: tasks.map(t => ({
+        id: t._id,
+        status: t.status,
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt
+      }))
+    });
+  });
 }
