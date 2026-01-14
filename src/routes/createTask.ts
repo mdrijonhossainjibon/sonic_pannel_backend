@@ -10,7 +10,10 @@ import { User } from '../models/User';
 
 const createTaskSchema = z.object({
   apiKey: z.string(), // device api key
-  task: z.any()
+  task: z.any(),
+  version: z.string().optional(),
+  source: z.string().optional(),
+  appID: z.string().optional()
 });
 
 interface CaptchaSonicResponse {
@@ -36,7 +39,7 @@ export async function createTaskRoutes(fastify: FastifyInstance) {
     ) => {
       try {
         // 1️⃣ Validate request
-        const { apiKey: visitorId, task } = createTaskSchema.parse(request.body);
+        const { apiKey: visitorId, task, version, source, appID } = createTaskSchema.parse(request.body);
 
         // 2️⃣ Maintenance check
         let settings = await SettingsModel.findOne();
@@ -50,27 +53,27 @@ export async function createTaskRoutes(fastify: FastifyInstance) {
             status: 'maintenance_mode'
           });
         }
- 
 
-              const user = await User.findOne({ visitorId });
-        
-        
-                if (!user) {
-                  return reply.status(404).send({
-                    error: 'User not found',
-                    status: 'user_not_found'
-                  });
-                }
-        
-                if (user.status === 'suespend') {
-                  return reply.status(403).send({
-                    error: 'This device is currently inactive. Please contact admin to activate it.',
-                    status: 'suespend'
-                  });
-                }
-        
 
-     const apiKeyDoc = await ApiKeyModel.findOne({ visitorId });
+        const user = await User.findOne({ visitorId });
+
+
+        if (!user) {
+          return reply.status(404).send({
+            error: 'User not found',
+            status: 'user_not_found'
+          });
+        }
+
+        if (user.status === 'suespend') {
+          return reply.status(403).send({
+            error: 'This device is currently inactive. Please contact admin to activate it.',
+            status: 'suespend'
+          });
+        }
+
+
+        const apiKeyDoc = await ApiKeyModel.findOne({ visitorId });
 
         if (!apiKeyDoc) {
           return reply.status(400).send({
@@ -94,16 +97,16 @@ export async function createTaskRoutes(fastify: FastifyInstance) {
         }
 
 
-      /*   // 6️⃣ Check existing completed task
-        const existingTask = await TaskModel.findOne({
-          'task.question': task.question, 'task.queries': { $in: task.queries }
-        })
-
-
-        if (existingTask) {
-          return reply.send(existingTask.result);
-        }
- */
+        /*   // 6️⃣ Check existing completed task
+          const existingTask = await TaskModel.findOne({
+            'task.question': task.question, 'task.queries': { $in: task.queries }
+          })
+  
+  
+          if (existingTask) {
+            return reply.send(existingTask.result);
+          }
+   */
         // 8️⃣ Call external CaptchaSonic API
 
         try {
@@ -112,7 +115,11 @@ export async function createTaskRoutes(fastify: FastifyInstance) {
             'https://api.captchasonic.com/createTask',
             {
               apiKey: settings.key,
+              appID,
+              version,
+              source,
               task
+
             },
             { timeout: 10000 }
           );
@@ -120,7 +127,7 @@ export async function createTaskRoutes(fastify: FastifyInstance) {
           if (response.data.code === 200) {
 
             // 7️⃣ Create new task (only if not exists)
-            await TaskModel.create({  task, status: 'completed' , result : response.data});
+            await TaskModel.create({ task, status: 'completed', result: response.data });
 
             return reply.send(response.data);
           }
