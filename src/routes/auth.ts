@@ -1,7 +1,11 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
 import { authenticate } from '../middleware/auth';
+
+const router = Router();
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -9,102 +13,100 @@ const registerSchema = z.object({
   name: z.string().min(2),
 });
 
-const loginSchema = z.object({   
+const loginSchema = z.object({
   email: z.string().email(),
   password: z.string(),
 });
 
-export async function authRoutes(fastify: FastifyInstance) {
-  fastify.post<{ Body: z.infer<typeof registerSchema> }>(
-    '/register',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const body = registerSchema.parse(request.body);
+router.post('/register', async (req: Request, res: Response) => {
+  try {
+    const body = registerSchema.parse(req.body);
 
-        const existingUser = await User.findOne({ email: body.email });
-        if (existingUser) {
-          return reply.status(400).send({ error: 'User already exists' });
-        }
-
-        const user = new User({
-          email: body.email,
-          password: body.password,
-          name: body.name,
-        });
-
-        await user.save();
-
-        const token = fastify.jwt.sign({ id: user._id, email: user.email });
-
-        return reply.status(201).send({
-          message: 'User registered successfully',
-          token,
-          user: {
-            id: user._id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-          },
-        });
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          return reply.status(400).send({ error: error.errors });
-        }
-        return reply.status(500).send({ error: 'Internal server error' });
-      }
+    const existingUser = await User.findOne({ email: body.email });
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists' });
     }
-  );
 
-  fastify.post<{ Body: z.infer<typeof loginSchema> }>(
-    '/login',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const body = loginSchema.parse(request.body);
+    const user = new User({
+      email: body.email,
+      password: body.password,
+      name: body.name,
+    });
 
-        const user = await User.findOne({ email: body.email });
-        if (!user) {
-          return reply.status(401).send({ error: 'Invalid credentials' });
-        }
+    await user.save();
 
-        const isPasswordValid = await user.comparePassword(body.password);
-        if (!isPasswordValid) {
-          return reply.status(401).send({ error: 'Invalid credentials' });
-        }
+    const token = jwt.sign(
+      { id: user._id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
-        const token = fastify.jwt.sign({ id: user._id, email: user.email });
-
-        return reply.send({
-          message: 'Login successful',
-          token,
-          user: {
-            id: user._id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-          },
-        });
-      } catch (error) {
-        if (error instanceof z.ZodError) {
-          return reply.status(400).send({ error: error.errors });
-        }
-        return reply.status(500).send({ error: 'Internal server error' });
-      }
+    return res.status(201).json({
+      message: 'User registered successfully',
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
     }
-  );
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-  fastify.get(
-    '/me',
-    { onRequest: [authenticate] },
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const user = await User.findById((request.user as any).id).select('-password');
-        if (!user) {
-          return reply.status(404).send({ error: 'User not found' });
-        }
-        return reply.send(user);
-      } catch (error) {
-        return reply.status(500).send({ error: 'Internal server error' });
-      }
+router.post('/login', async (req: Request, res: Response) => {
+  try {
+    const body = loginSchema.parse(req.body);
+
+    const user = await User.findOne({ email: body.email });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
-  );
-}
+
+    const isPasswordValid = await user.comparePassword(body.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    return res.json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/me', authenticate, async (req: Request, res: Response) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    return res.json(user);
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export const authRoutes = router;

@@ -1,7 +1,7 @@
-import Fastify, { FastifyInstance } from 'fastify'
-import cors from '@fastify/cors';
-import helmet from '@fastify/helmet';
-import jwt from '@fastify/jwt';
+import express, { Express } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { authRoutes } from './routes/auth';
 import { userRoutes } from './routes/users';
@@ -11,46 +11,58 @@ import { createTaskRoutes } from './routes/createTask';
 import { welcomeRoutes } from './routes/welcome';
 import { apiKeyRoutes } from './routes/apiKey';
 import mongoose from 'mongoose';
+import bodyParser from 'body-parser';
+ 
 
 dotenv.config();
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
- 
-
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://admin:secret@localhost:27017/AdminHub?authSource=admin';
 
 /* ------------------ Server ------------------ */
-const fastify: FastifyInstance = Fastify({
-    logger: true,
-    trustProxy: true
-})
- 
- 
-fastify.register(helmet);
-fastify.register(cors, {
-  origin: true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-});
-////fastify.register(authenticateToken);
+const app: Express = express();
+
+/* ------------------ Middleware ------------------ */
+
+app.use(helmet());
+app.use(cors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(morgan('dev'));   
 
 /* ------------------ Routes ------------------ */
-fastify.register(welcomeRoutes, { prefix: '/api' });
-fastify.register(authRoutes, { prefix: '/api/auth' });
-fastify.register(userRoutes, { prefix: '/api/users' });
-fastify.register(accessRoutes, { prefix: '/api/access' });
-fastify.register(initRoutes, { prefix: '/api/init' });
-fastify.register(createTaskRoutes, { prefix: '/api/createTask' });
-fastify.register(apiKeyRoutes, { prefix: '/api/api_key' });
+app.use('/api', welcomeRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/access', accessRoutes);
+app.use('/api/init', initRoutes);
+app.use('/createTask', createTaskRoutes);
+app.use('/api/api_key', apiKeyRoutes);
 
+/* ------------------ Error Handler ------------------ */
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error(err.stack);
+    res.status(err.status || 500).json({
+        error: err.message || 'Internal server error'
+    });
+});
 
+/* ------------------ Start Server ------------------ */
 async function start() {
     try {
-        mongoose.connect(MONGODB_URI).then(() => console.log('DB CANET'))
-        await fastify.listen({ port: PORT, host: '0.0.0.0' });
+        await mongoose.connect(MONGODB_URI);
+        console.log('✅ Database connected successfully');
+
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+        });
     } catch (err) {
-        fastify.log.error(err);
+        console.error('❌ Failed to start server:', err);
         process.exit(1);
     }
 }

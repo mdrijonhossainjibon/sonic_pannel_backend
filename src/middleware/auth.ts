@@ -1,20 +1,35 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
 
-export async function authenticateToken(fastify: FastifyInstance) {
-  fastify.decorate('authenticate', async function(request: FastifyRequest, reply: FastifyReply) {
-    try {
-      await request.jwtVerify();
-    } catch (err) {
-      reply.status(401).send({ error: 'Unauthorized' });
+// Extend Express Request type to include user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: any;
     }
-  });
+  }
 }
 
-// Also export the authenticate function directly for use in routes
-export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
+
+export async function authenticate(req: Request, res: Response, next: NextFunction) {
   try {
-    await request.jwtVerify();
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized - No token provided' });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      req.user = decoded;
+      next();
+    } catch (err) {
+      return res.status(401).json({ error: 'Unauthorized - Invalid token' });
+    }
   } catch (err) {
-    reply.status(401).send({ error: 'Unauthorized' });
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 }

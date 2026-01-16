@@ -1,10 +1,12 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { DeviceModel, IDevice } from '../models/Device';
 import { SettingsModel, ISettings } from '../models/Settings';
 import { ApiKeyModel, IApiKey } from '../models/ApiKey';
 import axios from 'axios';
 import { User } from '../models/User';
+
+const router = Router();
 
 const accessQuerySchema = z.object({
   visitorId: z.string(),
@@ -18,118 +20,110 @@ interface CaptchaSonicResponse {
   error?: string;
 }
 
-export async function accessRoutes(fastify: FastifyInstance) {
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    // Validate query parameters
+    const { visitorId, app } = accessQuerySchema.parse(req.query);
 
+    // Check if maintenance mode is enabled
+    let settings = await SettingsModel.findOne();
+    if (!settings) {
+      settings = await SettingsModel.create({});
+    }
 
-  fastify.get<{ Querystring: z.infer<typeof accessQuerySchema> }>(
-    '/',
-    async (request: FastifyRequest<{ Querystring: z.infer<typeof accessQuerySchema> }>, reply: FastifyReply) => {
-      try {
-        // Validate query parameters
-        const { visitorId, app } = accessQuerySchema.parse(request.query);
+    if (settings.maintenanceMode) {
+      return res.status(503).json({
+        error: 'The extension is currently under maintenance. Please try again later.',
+        status: 'maintenance_mode'
+      });
+    }
 
-        // Check if maintenance mode is enabled
-        let settings = await SettingsModel.findOne();
-        if (!settings) {
-          settings = await SettingsModel.create({});
-        }
+    // Check app version
+    if (app && app !== settings.app_version) {
+      return res.status(426).json({
+        error: 'App update required',
+        status: 'update_required',
+        current_version: settings.app_version,
+        client_version: app
+      });
+    }
 
-        if (settings.maintenanceMode) {
-          return reply.status(503).send({
-            error: 'The extension is currently under maintenance. Please try again later.',
-            status: 'maintenance_mode'
-          });
-        }
+    const user = await User.findOne({ visitorId });
 
-        // Check app version
-        if (app && app !== settings.app_version) {
-          return reply.status(426).send({
-            error: 'App update required',
-            status: 'update_required',
-            current_version: settings.app_version,
-            client_version: app
-          });
-        }
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        status: 'user_not_found'
+      });
+    }
 
-        const user = await User.findOne({ visitorId });
+    if (user.status === 'suespend') {
+      return res.status(403).json({
+        error: 'This device is currently inactive. Please contact admin to activate it.',
+        status: 'suespend'
+      });
+    }
 
+    // Get API key
+    const apiKeyDoc = await ApiKeyModel.findOne({ visitorId });
 
-        if (!user) {
-          return reply.status(404).send({
-            error: 'User not found',
-            status: 'user_not_found'
-          });
-        }
+    if (!apiKeyDoc) {
+      return res.status(400).json({
+        error: 'No API key found',
+        status: 'api_error'
+      });
+    }
 
-        if (user.status === 'suespend') {
-          return reply.status(403).send({
-            error: 'This device is currently inactive. Please contact admin to activate it.',
-            status: 'suespend'
-          });
-        }
+    if (apiKeyDoc.status === 'inactive') {
+      return res.status(403).json({
+        error: 'This device is currently inactive. Please contact admin to activate it.',
+        status: 'inactive'
+      });
+    }
 
-        // Get API key
-        const apiKeyDoc = await ApiKeyModel.findOne({ visitorId });
+    if (apiKeyDoc.status === 'expire' || (apiKeyDoc.expiresAt && new Date() > apiKeyDoc.expiresAt)) {
+      return res.status(403).json({
+        error: 'API key has expired. Please contact admin to renew it.',
+        status: 'expire'
+      });
+    }
 
-        if (!apiKeyDoc) {
-          return reply.status(400).send({
-            error: 'No API key found',
-            status: 'api_error'
-          });
-        }
+    // Make API call to CaptchaSonic
+    try {
+      const response = await axios.get<CaptchaSonicResponse>('https://api.captchasonic.com/balance', {
+        params: { apiKey: settings.key },
+        timeout: 10000
+      });
 
-        if (apiKeyDoc.status === 'inactive') {
-          return reply.status(403).send({
-            error: 'This device is currently inactive. Please contact admin to activate it.',
-            status: 'inactive'
-          });
-        }
-
-        if (apiKeyDoc.status === 'expire' || (apiKeyDoc.expiresAt && new Date() > apiKeyDoc.expiresAt)) {
-          return reply.status(403).send({
-            error: 'API key has expired. Please contact admin to renew it.',
-            status: 'expire'
-          });
-        }
-
-        // Make API call to CaptchaSonic
-        try {
-          const response = await axios.get<CaptchaSonicResponse>('https://api.captchasonic.com/balance', {
-            params: { apiKey: settings.key },
-            timeout: 10000
-          });
-
-          if (response.status === 200 && response.data.status === 'ok') {
-            return reply.send({
-              balance: response.data.balance,
-              plan: response.data.plan,
-              status: 'active'
-            });
-          }
-
-          return reply.status(response.status || 400).send({
-            error: response.data.error || 'Failed to fetch balance'
-          });
-
-        } catch (apiError: unknown) {
-          fastify.log.error({ error: apiError }, 'CaptchaSonic API error');
-          return reply.status(500).send({
-            error: 'Failed to connect to external service'
-          });
-        }
-
-      } catch (error: unknown) {
-        if (error instanceof z.ZodError) {
-          return reply.status(400).send({ error: error.errors });
-        }
-
-        fastify.log.error({ error }, 'Error in access endpoint');
-        return reply.status(500).send({
-          error: 'Internal server error'
+      if (response.status === 200 && response.data.status === 'ok') {
+        return res.json({
+          balance: response.data.balance,
+          plan: response.data.plan,
+          status: 'active'
         });
       }
-    }
-  );
 
-  
-}
+      return res.status(response.status || 400).json({
+        error: response.data.error || 'Failed to fetch balance'
+      });
+
+    } catch (apiError: unknown) {
+      console.error('CaptchaSonic API error:', apiError);
+      return res.status(500).json({
+        error: 'Failed to connect to external service'
+      });
+    }
+
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+
+    console.error('Error in access endpoint:', error);
+    return res.status(500).json({
+      error: 'Internal server error'
+    });
+  }
+});
+
+export const accessRoutes = router;

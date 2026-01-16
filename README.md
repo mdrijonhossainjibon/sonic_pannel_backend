@@ -1,16 +1,17 @@
-# Sonic Panel Backend - Fastify TypeScript
+# Sonic Panel Backend - Express TypeScript
 
-A high-performance REST API backend built with Fastify and TypeScript for the Sonic Panel admin dashboard.
+A high-performance REST API backend built with Express and TypeScript for the Sonic Panel admin dashboard.
 
 ## Features
 
-- **Fastify**: Fast and low overhead web framework
+- **Express**: Fast, unopinionated, minimalist web framework
 - **TypeScript**: Type-safe development
 - **MongoDB**: Document database with Mongoose ODM
 - **JWT Authentication**: Secure token-based authentication
 - **CORS & Helmet**: Security middleware
 - **Zod Validation**: Runtime schema validation
 - **Bcrypt**: Password hashing
+- **Morgan**: HTTP request logger
 
 ## Prerequisites
 
@@ -23,6 +24,8 @@ A high-performance REST API backend built with Fastify and TypeScript for the So
 1. Install dependencies:
 ```bash
 npm install
+# or
+yarn install
 ```
 
 2. Create `.env` file:
@@ -44,6 +47,8 @@ CORS_ORIGIN=http://localhost:3000
 Run the development server with hot reload:
 ```bash
 npm run dev
+# or
+yarn dev
 ```
 
 The server will start at `http://localhost:3001`
@@ -53,6 +58,8 @@ The server will start at `http://localhost:3001`
 Build TypeScript to JavaScript:
 ```bash
 npm run build
+# or
+yarn build
 ```
 
 ## Production
@@ -60,6 +67,8 @@ npm run build
 Start the production server:
 ```bash
 npm start
+# or
+yarn start
 ```
 
 ## API Endpoints
@@ -75,30 +84,44 @@ npm start
 - `PUT /api/users/:id` - Update user (requires auth)
 - `DELETE /api/users/:id` - Delete user (requires auth)
 
-### Products
-- `GET /api/products` - List all products
-- `GET /api/products/:id` - Get product by ID
-- `POST /api/products` - Create product (requires auth)
-- `PUT /api/products/:id` - Update product (requires auth)
-- `DELETE /api/products/:id` - Delete product (requires auth)
+### Access
+- `GET /api/access` - Check access and balance
 
-### Health
-- `GET /health` - Health check endpoint
+### API Keys
+- `GET /api/api_key` - Get API key
+- `POST /api/api_key` - Create/validate API key
+
+### Tasks
+- `POST /api/createTask` - Create a new task
+- `GET /api/createTask/tasks` - List all tasks
+
+### Initialization
+- `GET /api/init/setup` - Initialize database with default settings
+
+### Welcome
+- `GET /api` - Welcome endpoint with client info
 
 ## Project Structure
 
 ```
 src/
 ├── index.ts              # Main server entry point
-├── config/
-│   └── database.ts       # MongoDB connection
+├── middleware/
+│   └── auth.ts           # JWT authentication middleware
 ├── models/
 │   ├── User.ts           # User schema and model
-│   └── Product.ts        # Product schema and model
+│   ├── ApiKey.ts         # API Key schema and model
+│   ├── Device.ts         # Device schema and model
+│   ├── Settings.ts       # Settings schema and model
+│   └── Task.ts           # Task schema and model
 └── routes/
     ├── auth.ts           # Authentication routes
     ├── users.ts          # User management routes
-    └── products.ts       # Product management routes
+    ├── access.ts         # Access control routes
+    ├── apiKey.ts         # API key management routes
+    ├── createTask.ts     # Task creation routes
+    ├── init.ts           # Initialization routes
+    └── welcome.ts        # Welcome/info routes
 ```
 
 ## Authentication
@@ -118,6 +141,17 @@ All endpoints return consistent error responses:
   "error": "Error message"
 }
 ```
+
+## Migration from Fastify
+
+This application has been converted from Fastify to Express.js. Key changes include:
+
+- Replaced `@fastify/cors` with `cors`
+- Replaced `@fastify/helmet` with `helmet`
+- Replaced `@fastify/jwt` with `jsonwebtoken`
+- Added `morgan` for request logging
+- Converted all route handlers from Fastify plugins to Express routers
+- Updated middleware to use Express request/response objects
 
 ## License
 

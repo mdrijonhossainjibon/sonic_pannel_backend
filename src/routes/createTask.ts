@@ -1,174 +1,98 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-
-import axios from 'axios';
 
 import { SettingsModel } from '../models/Settings';
 import { ApiKeyModel } from '../models/ApiKey';
 import { TaskModel } from '../models/Task';
 import { User } from '../models/User';
+import { API_CALL } from 'auth-fingerprint';
+const router = Router();
 
-const createTaskSchema = z.object({
-  apiKey: z.string(), // device api key
-  task: z.any(),
-  version: z.string().optional(),
-  source: z.string().optional(),
-  appID: z.string().optional()
+
+router.post('/', async (req: Request, res: Response) => {
+
+  try {
+    // 1️⃣ Validate request
+
+    const { apiKey: visitorId, task, version, source, appID } = req.body;
+
+    // 2️⃣ Maintenance check
+    let settings = await SettingsModel.findOne();
+    if (!settings) {
+      settings = await SettingsModel.create({});
+    }
+
+    if (settings.maintenanceMode) {
+      return res.status(503).json({
+        error: 'The extension is currently under maintenance.',
+        status: 'maintenance_mode'
+      });
+    }
+
+    const user = await User.findOne({ visitorId });
+    console.log('👤 User lookup result:', user ? `Found user: ${user._id}` : 'User not found');
+
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        status: 'user_not_found'
+      });
+    }
+
+    if (user.status === 'suespend') {
+      return res.status(403).json({
+        error: 'This device is currently inactive. Please contact admin to activate it.',
+        status: 'suespend'
+      });
+    }
+
+    const apiKeyDoc = await ApiKeyModel.findOne({ visitorId });
+    console.log('🔑 API Key lookup result:', apiKeyDoc ? `Found key with status: ${apiKeyDoc.status}` : 'API key not found');
+
+    if (!apiKeyDoc) {
+      return res.status(400).json({
+        error: 'No API key found',
+        status: 'api_error'
+      });
+    }
+
+    if (apiKeyDoc.status === 'inactive') {
+      return res.status(403).json({
+        error: 'This device is currently inactive. Please contact admin to activate it.',
+        status: 'inactive'
+      });
+    }
+
+    if (apiKeyDoc.status === 'expire' || (apiKeyDoc.expiresAt && new Date() > apiKeyDoc.expiresAt)) {
+      return res.status(403).json({
+        error: 'API key has expired. Please contact admin to renew it.',
+        status: 'expire'
+      });
+    }
+
+    const { response, status } = await API_CALL({ baseURL: 'https://api.captchasonic.com', body: { apiKey: settings.key, task, version, source, appID }, method: 'POST', url: '/createTask' })
+
+
+
+    if (status === 200 && response.code === 200) {
+      await TaskModel.create({ task, status: 'completed', result: response });
+      return res.json(response);
+    }
+
+
+    return res.status(400).json({
+      error: response.msg || 'Task failed',
+      code: response.code,
+      response: response.data
+    });
+
+  } catch (error: any) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('❌ Internal server error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
-interface CaptchaSonicResponse {
-  code: number;
-  msg: string;
-  answers?: any[];
-  meta?: {
-    pass_report: boolean;
-    fail_report: boolean;
-    data: string;
-  };
-  questionType?: string;
-  error?: string;
-}
-
-export async function createTaskRoutes(fastify: FastifyInstance) {
-
-  fastify.post<{ Body: z.infer<typeof createTaskSchema> }>(
-    '/',
-    async (
-      request: FastifyRequest<{ Body: z.infer<typeof createTaskSchema> }>,
-      reply: FastifyReply
-    ) => {
-      try {
-        // 1️⃣ Validate request
-        const { apiKey: visitorId, task, version, source, appID } = createTaskSchema.parse(request.body);
-
-        // 2️⃣ Maintenance check
-        let settings = await SettingsModel.findOne();
-        if (!settings) {
-          settings = await SettingsModel.create({});
-        }
-
-        if (settings.maintenanceMode) {
-          return reply.status(503).send({
-            error: 'The extension is currently under maintenance.',
-            status: 'maintenance_mode'
-          });
-        }
-
-
-        const user = await User.findOne({ visitorId });
-
-
-        if (!user) {
-          return reply.status(404).send({
-            error: 'User not found',
-            status: 'user_not_found'
-          });
-        }
-
-        if (user.status === 'suespend') {
-          return reply.status(403).send({
-            error: 'This device is currently inactive. Please contact admin to activate it.',
-            status: 'suespend'
-          });
-        }
-
-
-        const apiKeyDoc = await ApiKeyModel.findOne({ visitorId });
-
-        if (!apiKeyDoc) {
-          return reply.status(400).send({
-            error: 'No API key found',
-            status: 'api_error'
-          });
-        }
-
-        if (apiKeyDoc.status === 'inactive') {
-          return reply.status(403).send({
-            error: 'This device is currently inactive. Please contact admin to activate it.',
-            status: 'inactive'
-          });
-        }
-
-        if (apiKeyDoc.status === 'expire' || (apiKeyDoc.expiresAt && new Date() > apiKeyDoc.expiresAt)) {
-          return reply.status(403).send({
-            error: 'API key has expired. Please contact admin to renew it.',
-            status: 'expire'
-          });
-        }
-
-
-        /*   // 6️⃣ Check existing completed task
-          const existingTask = await TaskModel.findOne({
-            'task.question': task.question, 'task.queries': { $in: task.queries }
-          })
-  
-  
-          if (existingTask) {
-            return reply.send(existingTask.result);
-          }
-   */
-        // 8️⃣ Call external CaptchaSonic API
-
-        try {
-
-          const response = await axios.post<CaptchaSonicResponse>(
-            'https://api.captchasonic.com/createTask',
-            {
-              apiKey: settings.key,
-              appID,
-              version,
-              source,
-              task
-
-            },
-            { timeout: 10000 }
-          );
-
-          if (response.data.code === 200) {
-
-            // 7️⃣ Create new task (only if not exists)
-            await TaskModel.create({ task, status: 'completed', result: response.data });
-
-            return reply.send(response.data);
-          }
-
-
-          return reply.status(400).send({
-            error: response.data.msg || 'Task failed',
-            code: response.data.code,
-            response: response.data
-          });
-
-        } catch (apiError: any) {
-          fastify.log.error(apiError, 'CaptchaSonic API error');
-
-          return reply.status(500).send({
-            error: 'Failed to connect to external service'
-          });
-        }
-
-      } catch (error: any) {
-        if (error instanceof z.ZodError) {
-          return reply.status(400).send({ error: error.errors });
-        }
-
-        fastify.log.error(error, 'createTask error');
-        return reply.status(500).send({ error: 'Internal server error' });
-      }
-    }
-  );
-
-  // 🔍 List tasks (admin/debug)
-  fastify.get('/tasks', async (_req, reply) => {
-    const tasks = await TaskModel.find().sort({ createdAt: -1 });
-
-    return reply.send({
-      tasks: tasks.map(t => ({
-        id: t._id,
-        status: t.status,
-        createdAt: t.createdAt,
-        updatedAt: t.updatedAt
-      }))
-    });
-  });
-}
+export const createTaskRoutes = router;
