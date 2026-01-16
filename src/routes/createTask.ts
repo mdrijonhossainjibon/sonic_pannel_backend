@@ -72,7 +72,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     const { response, status } = await API_CALL({ baseURL: 'https://api.captchasonic.com', body: { apiKey: settings.key, task, version, source, appID }, method: 'POST', url: '/createTask' })
 
-
+  console.log('response', response);
 
     if (status === 200 && response.code === 200) {
       await TaskModel.create({ task, status: 'completed', result: response });
