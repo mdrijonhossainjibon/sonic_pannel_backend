@@ -18,7 +18,6 @@ const userSchema = new Schema<IUser>(
     email: {
       type: String,
       default: null,
-      sparse: true,
       index: {
         unique: true,
         sparse: true
