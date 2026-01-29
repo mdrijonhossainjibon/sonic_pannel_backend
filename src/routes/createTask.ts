@@ -3,7 +3,6 @@ import { z } from 'zod';
 
 import { SettingsModel } from '../models/Settings';
 import { ApiKeyModel } from '../models/ApiKey';
-import { TaskModel } from '../models/Task';
 import { User } from '../models/User';
 import { API_CALL } from 'auth-fingerprint';
 const router = Router();
@@ -17,7 +16,7 @@ router.post('/', async (req: Request, res: Response) => {
     const { apiKey: visitorId, task, version, source, appID } = req.body;
 
     // 2️⃣ Maintenance check
-    let settings = await SettingsModel.findOne();
+    let settings = await SettingsModel.findOne({});
     if (!settings) {
       settings = await SettingsModel.create({});
     }
@@ -72,10 +71,10 @@ router.post('/', async (req: Request, res: Response) => {
 
     const { response, status } = await API_CALL({ baseURL: 'https://api.captchasonic.com', body: { apiKey: settings.key, task, version, source, appID }, method: 'POST', url: '/createTask' })
 
-  console.log('response', response);
+  
 
     if (status === 200 && response.code === 200) {
-      await TaskModel.create({ task, status: 'completed', result: response });
+     
       return res.json(response);
     }
 
