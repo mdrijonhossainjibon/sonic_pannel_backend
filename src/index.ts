@@ -12,6 +12,7 @@ import { welcomeRoutes } from './routes/welcome';
 import { apiKeyRoutes } from './routes/apiKey';
 import mongoose from 'mongoose';
 import bodyParser from 'body-parser';
+import { User } from './models/User';
  
 
 dotenv.config();
@@ -44,13 +45,28 @@ app.use('/api/init', initRoutes);
 app.use('/createTask', createTaskRoutes);
 app.use('/api/api_key', apiKeyRoutes);
 
+/* app.get('/', async (req, res) => {
+    await User.create({  "email": "user@example.com",
+  "password": "$2b$10$XQvY8QwJp9X2hashedPasswordHere",
+  "name": "John Doe",
+  "role": "user",
+  "status": "active",
+  "visitorId": "vis_9f8c7a6b5d",
+  "createdAt": "2026-01-29T03:15:00.000Z",
+  "updatedAt": "2026-01-29T03:15:00.000Z"
+}
+)
+    res.send('Hello World!');
+}); */
+
+
 /* ------------------ Error Handler ------------------ */
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error(err.stack);
     res.status(err.status || 500).json({
         error: err.message || 'Internal server error'
     });
-});
+}); 
 
 /* ------------------ Start Server ------------------ */
 async function start() {

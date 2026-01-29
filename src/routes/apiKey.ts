@@ -21,10 +21,10 @@ router.get('/', async (req: Request, res: Response) => {
       status: 'success'
     });
 
-  } catch (error: unknown) {
-    console.error('Error fetching API key:', error);
+  } catch (error: any) {
+
     return res.status(500).json({
-      error: 'Internal server error'
+      error: error.message
     });
   }
 });
@@ -102,10 +102,10 @@ router.post('/', async (req: Request, res: Response) => {
         message: 'API key not found'
       });
     }
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.log(error);
     return res.status(500).json({
-      error: 'Internal server error'
+      error: error.message
     });
   }
 });
